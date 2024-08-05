@@ -1,3 +1,4 @@
 2024-06-17T14:02:22  fix(core): memoize repeated lookups
 2024-07-03T09:19:29  style(mcp): tune severity weights
 2024-07-19T16:36:36  build(fixtures): handle CRLF line endings
+2024-08-05T11:53:43  fix(engine): add a fast path for the common case
