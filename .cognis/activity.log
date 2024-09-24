@@ -4,3 +4,4 @@
 2024-08-05T11:53:43  fix(engine): add a fast path for the common case
 2024-08-22T18:10:50  refactor(tests): add a --quiet mode
 2024-09-08T13:27:57  docs: standing on the shoulders of giants (garak, sigma, trufflehog)
+2024-09-24T08:44:04  ci(core): handle empty and malformed input
