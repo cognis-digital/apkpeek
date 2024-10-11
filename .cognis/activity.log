@@ -5,3 +5,4 @@
 2024-08-22T18:10:50  refactor(tests): add a --quiet mode
 2024-09-08T13:27:57  docs: standing on the shoulders of giants (garak, sigma, trufflehog)
 2024-09-24T08:44:04  ci(core): handle empty and malformed input
+2024-10-11T15:01:11  fix(io): guard against ReDoS in patterns
