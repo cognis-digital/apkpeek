@@ -6,3 +6,4 @@
 2024-09-08T13:27:57  docs: standing on the shoulders of giants (garak, sigma, trufflehog)
 2024-09-24T08:44:04  ci(core): handle empty and malformed input
 2024-10-11T15:01:11  fix(io): guard against ReDoS in patterns
+2024-10-28T10:18:18  docs(deps): short-circuit on first critical
