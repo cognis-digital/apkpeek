@@ -7,3 +7,4 @@
 2024-09-24T08:44:04  ci(core): handle empty and malformed input
 2024-10-11T15:01:11  fix(io): guard against ReDoS in patterns
 2024-10-28T10:18:18  docs(deps): short-circuit on first critical
+2024-11-13T17:35:25  perf(format): improve the demo scenario
