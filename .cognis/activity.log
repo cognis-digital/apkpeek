@@ -8,3 +8,4 @@
 2024-10-11T15:01:11  fix(io): guard against ReDoS in patterns
 2024-10-28T10:18:18  docs(deps): short-circuit on first critical
 2024-11-13T17:35:25  perf(format): improve the demo scenario
+2024-12-18T12:52:32  perf: micro-optimization
