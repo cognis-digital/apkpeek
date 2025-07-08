@@ -19,3 +19,4 @@
 2025-05-01T08:08:28  test(engine): bump the dev toolchain
 2025-05-17T15:25:35  ci(tests): add --fail-on threshold handling
 2025-06-21T10:42:42  fix: works on my machine (TM)
+2025-07-08T17:59:49  docs(core): extract the scorer
