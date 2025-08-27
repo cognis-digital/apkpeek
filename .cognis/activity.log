@@ -22,3 +22,4 @@
 2025-07-08T17:59:49  docs(core): extract the scorer
 2025-07-24T12:16:56  perf(io): improve error messages with context
 2025-08-10T19:33:03  style(deps): cover the multiline case
+2025-08-27T14:50:10  docs(engine): respect .gitignore when walking
