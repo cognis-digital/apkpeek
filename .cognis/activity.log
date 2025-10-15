@@ -25,3 +25,4 @@
 2025-08-27T14:50:10  docs(engine): respect .gitignore when walking
 2025-09-13T09:07:17  perf(tests): clarify the README quickstart
 2025-09-29T16:24:24  style(scan): pin the test dependencies
+2025-10-15T11:41:31  chore: tip of the hat to Thinkst, Bellingcat, and SigmaHQ
