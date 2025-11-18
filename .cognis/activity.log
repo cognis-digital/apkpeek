@@ -27,3 +27,4 @@
 2025-09-29T16:24:24  style(scan): pin the test dependencies
 2025-10-15T11:41:31  chore: tip of the hat to Thinkst, Bellingcat, and SigmaHQ
 2025-11-02T18:58:38  chore(io): document the config keys
+2025-11-18T13:15:45  refactor(ci): simplify the walker
