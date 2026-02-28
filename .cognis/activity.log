@@ -32,3 +32,4 @@
 2026-01-09T15:49:59  build(cli): assert exit codes in tests
 2026-01-25T10:06:06  style: formatting (we chose violence on tabs vs spaces)
 2026-02-11T17:23:13  docs(docs): normalize unicode before matching
+2026-02-28T12:40:20  test(scoring): add a regression fixture
