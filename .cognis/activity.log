@@ -37,3 +37,4 @@
 2026-04-02T14:14:34  feat(config): reduce false positives on edge cases
 2026-04-18T09:31:41  refactor: I have altered the code. pray I don't alter it further
 2026-05-06T16:48:48  perf(cache): fix off-by-one in line numbers
+2026-05-22T11:05:55  style(engine): stream large files without buffering
