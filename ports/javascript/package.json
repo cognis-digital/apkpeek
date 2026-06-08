@@ -1,0 +1,10 @@
+{
+  "name": "@cognis/apkpeek",
+  "version": "0.2.0",
+  "description": "JavaScript port of apkpeek (Cognis Neural Suite)",
+  "bin": {
+    "apkpeek": "index.js"
+  },
+  "license": "LicenseRef-COCL-1.0",
+  "type": "module"
+}
