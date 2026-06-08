@@ -1,2 +1,11 @@
-"""APKPEEK — One-command static triage of Android APK/AAB binaries: surfaces hardcoded secrets, exported components, dangerous permissions, and insecure manifest flags as a single SARIF report."""
-__version__ = "0.1.0"
+"""apkpeek — part of the Cognis Neural Suite."""
+try:  # re-export the tool's public API + identity from core
+    from apkpeek.core import *  # noqa: F401,F403
+except Exception:  # pragma: no cover
+    pass
+try:
+    from apkpeek.core import TOOL_NAME, TOOL_VERSION
+except Exception:  # pragma: no cover
+    TOOL_NAME = "apkpeek"
+    TOOL_VERSION = "0.1.0"
+__version__ = TOOL_VERSION
