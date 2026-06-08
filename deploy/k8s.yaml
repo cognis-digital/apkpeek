@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: apkpeek, labels: { app: apkpeek } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: apkpeek } }
+  template:
+    metadata: { labels: { app: apkpeek } }
+    spec:
+      containers:
+        - name: apkpeek
+          image: ghcr.io/cognis-digital/apkpeek:latest
+          ports: [{ containerPort: 8000 }]
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: apkpeek }
+spec:
+  selector: { app: apkpeek }
+  ports: [{ port: 80, targetPort: 8000 }]
