@@ -161,7 +161,7 @@ def _make_axml(tag, attrs):
             data += struct.pack("<H", len(s)) + b + b"\x00\x00"
         header = 28
         strings_start = header + 4 * len(strs)
-        body = struct.pack("<I" * len(offsets), *offsets) + data
+        body = struct.pack("<" + "I" * len(offsets), *offsets) + data
         size = header + len(body)
         if size % 4:
             pad = 4 - (size % 4)
