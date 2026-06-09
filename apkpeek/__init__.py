@@ -1,28 +1,66 @@
-"""apkpeek — MobSF-style Android static-analysis engine (stdlib only).
+"""APKPEEK - zero-install Android APK / manifest security analyzer (MobSF-style).
 
-Part of the Cognis Neural Suite. Public API + identity are re-exported
-from ``apkpeek.core``.
+Decodes a real .apk (ZIP), a binary AndroidManifest.xml (compiled AXML) or a
+plain-text manifest and runs a bundled rule pack covering exported components,
+dangerous/signature permissions, debuggable & allowBackup flags, cleartext
+traffic and hard-coded secret strings. Standard library only.
 """
-from apkpeek.core import (  # noqa: F401
+
+from .core import (
     TOOL_NAME,
     TOOL_VERSION,
-    Finding,
     SEVERITY_ORDER,
-    PERMISSION_DB,
-    parse_axml,
-    extract_metadata,
-    analyze_manifest,
-    analyze_network_security_config,
-    scan_secrets,
-    scan_apk,
-    compute_score,
-    to_sarif,
+    PERMISSION_CATALOG,
+    HIGH_RISK_PERMISSIONS,
+    SECRET_RULES,
+    SECRET_STOPWORDS,
+    SecretRule,
+    Engine,
+    Finding,
+    Component,
+    Manifest,
+    Report,
+    XmlElement,
+    shannon_entropy,
+    is_binary_axml,
+    decode_binary_axml,
+    decode_binary_axml_full,
+    parse_manifest_from_elements,
+    parse_manifest_text,
+    manifest_from_bytes,
+    analyze,
+    analyze_apk,
+    analyze_manifest_file,
+    sort_findings,
+    summarize,
+    _strip_android_prefix,
 )
 
-__version__ = TOOL_VERSION
 __all__ = [
-    "TOOL_NAME", "TOOL_VERSION", "Finding", "SEVERITY_ORDER", "PERMISSION_DB",
-    "parse_axml", "extract_metadata", "analyze_manifest",
-    "analyze_network_security_config", "scan_secrets", "scan_apk",
-    "compute_score", "to_sarif",
+    "TOOL_NAME",
+    "TOOL_VERSION",
+    "SEVERITY_ORDER",
+    "PERMISSION_CATALOG",
+    "HIGH_RISK_PERMISSIONS",
+    "SECRET_RULES",
+    "SECRET_STOPWORDS",
+    "SecretRule",
+    "Engine",
+    "Finding",
+    "Component",
+    "Manifest",
+    "Report",
+    "XmlElement",
+    "shannon_entropy",
+    "is_binary_axml",
+    "decode_binary_axml",
+    "decode_binary_axml_full",
+    "parse_manifest_from_elements",
+    "parse_manifest_text",
+    "manifest_from_bytes",
+    "analyze",
+    "analyze_apk",
+    "analyze_manifest_file",
+    "sort_findings",
+    "summarize",
 ]

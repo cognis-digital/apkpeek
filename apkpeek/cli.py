@@ -1,230 +1,288 @@
-"""Command-line interface for APKPEEK.
+"""APKPEEK command-line interface.
 
 Subcommands:
-    scan      Full static triage of an APK (manifest + NSC + secrets + score).
-    manifest  Decode/print AndroidManifest.xml and show metadata only.
-    rules     List the bundled detection rules / permission database.
-    version   Print tool name + version.
+  scan         - full static analysis of an .apk / AndroidManifest.xml
+  manifest     - decode + dump the manifest (package, sdk, flags, components)
+  permissions  - list requested permissions with protection levels
+  secrets      - scan only for hard-coded secret strings
+  perms-db     - list the bundled permission catalog
+  rules        - list the bundled secret-string rule pack
 
-Examples:
-    apkpeek scan app.apk
-    apkpeek scan app.apk --format json | jq '.security_score'
-    apkpeek scan app.apk --format sarif -o results.sarif
-    apkpeek scan app.apk --fail-on high
-    apkpeek manifest app.apk
-    apkpeek rules
+Global flags: --version, --format {table,json}
 
 Exit codes:
-    0  ran, no findings at/above the --fail-on threshold
-    1  findings at/above the threshold were detected
-    2  usage / runtime error (bad path, etc.)
+  0  success, no findings
+  1  usage / runtime error
+  2  findings present (or secrets found)
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from typing import List, Optional
 
 from . import TOOL_NAME, TOOL_VERSION
 from .core import (
-    scan_apk, to_sarif, extract_metadata, _decode_xml_blob,
-    SEVERITY_ORDER, PERMISSION_DB, _SECRET_PATTERNS,
+    PERMISSION_CATALOG,
+    SECRET_RULES,
+    SEVERITY_ORDER,
+    Engine,
+    Finding,
+    _strip_android_prefix,
+    analyze,
+    analyze_manifest_file,
+    sort_findings,
+    summarize,
 )
 
+EXIT_OK = 0
+EXIT_ERR = 1
+EXIT_FINDINGS = 2
 
-def _build_parser() -> argparse.ArgumentParser:
+
+# ---------------------------------------------------------------------------
+# Rendering helpers
+# ---------------------------------------------------------------------------
+def _print_json(obj) -> None:
+    print(json.dumps(obj, indent=2, sort_keys=True))
+
+
+def _table(rows: list[list[str]], headers: list[str]) -> str:
+    if not rows:
+        return "  ".join(headers) + "\n(no rows)"
+    cols = list(zip(*([headers] + rows)))
+    widths = [max(len(str(c)) for c in col) for col in cols]
+    line = "  ".join(str(h).ljust(w) for h, w in zip(headers, widths))
+    out = [line, "  ".join("-" * w for w in widths)]
+    for r in rows:
+        out.append("  ".join(str(c).ljust(w) for c, w in zip(r, widths)))
+    return "\n".join(out)
+
+
+def _render_findings(findings: list[Finding], fmt: str) -> None:
+    findings = sort_findings(findings)
+    if fmt == "json":
+        _print_json({"findings": [f.as_dict() for f in findings],
+                     "summary": summarize(findings)})
+        return
+    if not findings:
+        print("No findings.")
+        return
+    rows = [[f.severity.upper(), f.id, f.where, f.title] for f in findings]
+    print(_table(rows, ["SEVERITY", "RULE", "WHERE", "TITLE"]))
+    s = summarize(findings)
+    print("\n" + "  ".join(
+        f"{k}={s[k]}" for k in ("critical", "high", "medium", "low", "info")
+        if s.get(k)))
+    print(f"total={s['total']}")
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+def _cmd_scan(args) -> int:
+    try:
+        report = analyze(args.target, scan_dex=not args.no_dex,
+                         entropy=args.entropy)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    findings = report.findings
+    if args.min_severity:
+        thr = SEVERITY_ORDER[args.min_severity]
+        findings = [f for f in findings if SEVERITY_ORDER[f.severity] <= thr]
+    if args.format == "json":
+        d = report.as_dict()
+        d["findings"] = [f.as_dict() for f in findings]
+        d["summary"] = summarize(findings)
+        _print_json(d)
+    else:
+        print(f"# {TOOL_NAME} {TOOL_VERSION} - {report.target}")
+        print(f"package={report.manifest.package or '(unknown)'} "
+              f"minSdk={report.manifest.min_sdk} "
+              f"targetSdk={report.manifest.target_sdk} "
+              f"debuggable={report.manifest.debuggable} "
+              f"allowBackup={report.manifest.allow_backup}\n")
+        _render_findings(findings, "table")
+    return EXIT_FINDINGS if findings else EXIT_OK
+
+
+def _cmd_manifest(args) -> int:
+    try:
+        report = analyze_manifest_file(args.target, entropy=args.entropy) \
+            if not _is_zip(args.target) else analyze(args.target)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    m = report.manifest
+    if args.format == "json":
+        d = report.as_dict()
+        d.pop("findings", None)
+        _print_json(d)
+        return EXIT_OK
+    print(f"package      : {m.package or '(unknown)'}")
+    print(f"minSdk       : {m.min_sdk}")
+    print(f"targetSdk    : {m.target_sdk}")
+    print(f"debuggable   : {m.debuggable}")
+    print(f"allowBackup  : {m.allow_backup}")
+    print(f"cleartext    : {m.uses_cleartext_traffic}")
+    print(f"netSecConfig : {m.network_security_config}")
+    print(f"permissions  : {len(set(m.permissions))}")
+    print()
+    rows = [[c.kind, c.name or "(unnamed)", "yes" if c.exported else "no",
+             "yes" if c.has_intent_filter else "no", c.permission or "-"]
+            for c in m.components]
+    print(_table(rows, ["KIND", "NAME", "EXPORTED", "INTENT-FILTER", "PERMISSION"]))
+    return EXIT_OK
+
+
+def _cmd_permissions(args) -> int:
+    try:
+        report = analyze(args.target)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    perms = sorted(set(report.manifest.permissions))
+    rows = []
+    risky = 0
+    for p in perms:
+        short = _strip_android_prefix(p)
+        meta = PERMISSION_CATALOG.get(short, {"level": "normal/unknown",
+                                              "group": "-"})
+        if meta["level"] in ("dangerous", "signature"):
+            risky += 1
+        rows.append([short, meta["level"], meta["group"], p])
+    if args.format == "json":
+        _print_json({"package": report.manifest.package,
+                     "permissions": [
+                         {"name": r[3], "short": r[0], "level": r[1],
+                          "group": r[2]} for r in rows],
+                     "risky": risky})
+        return EXIT_FINDINGS if risky else EXIT_OK
+    print(_table(rows, ["PERMISSION", "LEVEL", "GROUP", "FULL"]))
+    print(f"\nrisky (dangerous/signature) = {risky} / {len(rows)}")
+    return EXIT_FINDINGS if risky else EXIT_OK
+
+
+def _cmd_secrets(args) -> int:
+    engine = Engine(secret_entropy_threshold=args.entropy)
+    findings: list[Finding] = []
+    try:
+        import zipfile
+        if zipfile.is_zipfile(args.target):
+            with zipfile.ZipFile(args.target) as zf:
+                for n in zf.namelist():
+                    findings += engine.scan_blob_secrets(zf.read(n), n)
+        else:
+            with open(args.target, "rb") as fh:
+                findings += engine.scan_blob_secrets(fh.read(), args.target)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    _render_findings(findings, args.format)
+    return EXIT_FINDINGS if findings else EXIT_OK
+
+
+def _cmd_perms_db(args) -> int:
+    rows = [[k, v["level"], v["group"]]
+            for k, v in sorted(PERMISSION_CATALOG.items())]
+    if args.format == "json":
+        _print_json({"permissions": [
+            {"name": r[0], "level": r[1], "group": r[2]} for r in rows]})
+        return EXIT_OK
+    print(_table(rows, ["PERMISSION", "LEVEL", "GROUP"]))
+    print(f"\n{len(rows)} permissions in catalog")
+    return EXIT_OK
+
+
+def _cmd_rules(args) -> int:
+    rows = [[r.id, r.severity, r.description] for r in SECRET_RULES]
+    if args.format == "json":
+        _print_json({"rules": [
+            {"id": r.id, "severity": r.severity, "description": r.description}
+            for r in SECRET_RULES]})
+        return EXIT_OK
+    print(_table(rows, ["ID", "SEVERITY", "DESCRIPTION"]))
+    print(f"\n{len(rows)} secret rules")
+    return EXIT_OK
+
+
+def _is_zip(path: str) -> bool:
+    import zipfile
+    try:
+        return zipfile.is_zipfile(path)
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    fmt_parent = argparse.ArgumentParser(add_help=False)
+    fmt_parent.add_argument("--format", choices=["table", "json"],
+                            default="table", help="output format")
+
     p = argparse.ArgumentParser(
         prog=TOOL_NAME,
-        description="Static triage of Android APKs (MobSF-style): exported components, "
-        "dangerous permissions, insecure flags, network-security-config, secrets, "
-        "and a 0-100 security score. Outputs table / JSON / SARIF.",
-        epilog="Example: apkpeek scan app.apk --format sarif -o out.sarif --fail-on high",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p.add_argument("--version", action="version", version=f"{TOOL_NAME} {TOOL_VERSION}")
-    sub = p.add_subparsers(dest="command", required=True)
+        description="APKPEEK - static Android APK / manifest security analyzer "
+                    "(MobSF-style, zero install).")
+    p.add_argument("--version", action="version",
+                   version=f"{TOOL_NAME} {TOOL_VERSION}")
+    sub = p.add_subparsers(dest="command")
 
-    s = sub.add_parser("scan", help="Full scan of an APK (or AndroidManifest.xml).")
-    s.add_argument("apk", help="Path to .apk (or a plain/binary AndroidManifest.xml).")
-    s.add_argument("--format", choices=["table", "json", "sarif"], default="table",
-                   help="Output format (default: table).")
-    s.add_argument("-o", "--output", help="Write output to this file instead of stdout.")
-    s.add_argument("--fail-on", choices=list(SEVERITY_ORDER.keys()), default="high",
-                   help="Exit non-zero if any finding is at/above this severity (default: high).")
-    s.add_argument("--no-secrets", action="store_true",
-                   help="Skip scanning bundled files for hard-coded secrets.")
+    def add_target(parser, entropy=True):
+        parser.add_argument("target",
+                            help=".apk file or AndroidManifest.xml (binary/text)")
+        if entropy:
+            parser.add_argument("--entropy", type=float, default=4.0,
+                                help="min Shannon entropy for heuristic secrets")
 
-    m = sub.add_parser("manifest", help="Decode the manifest and print metadata only.")
-    m.add_argument("apk", help="Path to .apk (or AndroidManifest.xml).")
-    m.add_argument("--format", choices=["table", "json"], default="table")
-    m.add_argument("--xml", action="store_true", help="Also print the decoded XML.")
+    sc = sub.add_parser("scan", parents=[fmt_parent],
+                        help="full static analysis of an apk/manifest")
+    add_target(sc)
+    sc.add_argument("--no-dex", action="store_true",
+                    help="skip scanning DEX/resources for secrets")
+    sc.add_argument("--min-severity", choices=list(SEVERITY_ORDER),
+                    help="only report findings at this severity or worse")
+    sc.set_defaults(func=_cmd_scan)
 
-    r = sub.add_parser("rules", help="List bundled detection rules and permission DB.")
-    r.add_argument("--format", choices=["table", "json"], default="table")
+    mf = sub.add_parser("manifest", parents=[fmt_parent],
+                        help="decode and dump the manifest")
+    add_target(mf)
+    mf.set_defaults(func=_cmd_manifest)
 
-    sub.add_parser("version", help="Print tool name and version.")
+    pm = sub.add_parser("permissions", parents=[fmt_parent],
+                        help="list requested permissions + protection levels")
+    add_target(pm, entropy=False)
+    pm.set_defaults(func=_cmd_permissions)
+
+    se = sub.add_parser("secrets", parents=[fmt_parent],
+                        help="scan only for hard-coded secret strings")
+    add_target(se)
+    se.set_defaults(func=_cmd_secrets)
+
+    pd = sub.add_parser("perms-db", parents=[fmt_parent],
+                        help="list the bundled permission catalog")
+    pd.set_defaults(func=_cmd_perms_db)
+
+    rl = sub.add_parser("rules", parents=[fmt_parent],
+                        help="list the bundled secret-string rules")
+    rl.set_defaults(func=_cmd_rules)
+
     return p
 
 
-def _render_table(report: dict) -> str:
-    lines: List[str] = []
-    lines.append(f"APKPEEK {TOOL_VERSION} — scan: {report['target']}")
-    meta = report.get("metadata") or {}
-    if meta.get("package"):
-        lines.append(f"  package: {meta['package']}  version: {meta.get('version_name') or '?'} "
-                     f"(code {meta.get('version_code')})")
-        lines.append(f"  sdk: min={meta.get('min_sdk')} target={meta.get('target_sdk')} "
-                     f"max={meta.get('max_sdk')}")
-        comps = meta.get("components", {})
-        lines.append("  components: " + ", ".join(f"{k}={v}" for k, v in comps.items()))
-        lines.append(f"  permissions requested: {len(meta.get('permissions', []))}")
-    if not report["manifest_present"]:
-        lines.append("  (no AndroidManifest.xml found)")
-    lines.append(f"  SECURITY SCORE: {report.get('security_score')}/100  (grade {report.get('grade')})")
-    lines.append("")
-
-    findings = report["findings"]
-    if not findings:
-        lines.append("  No findings.")
-    else:
-        sev_w = max(len(f["severity"]) for f in findings)
-        rule_w = max(len(f["rule_id"]) for f in findings)
-        for f in findings:
-            lines.append(f"  [{f['severity'].upper():<{sev_w}}] {f['rule_id']:<{rule_w}}  {f['message']}")
-            tags = []
-            if f.get("cwe"):
-                tags.append(f["cwe"])
-            if f.get("masvs"):
-                tags.append(f["masvs"])
-            loc = f.get("location") or ""
-            tail = "  ".join(t for t in [loc, "  ".join(tags)] if t)
-            if tail:
-                lines.append(f"           - {tail}")
-    s = report["summary"]
-    lines.append("")
-    lines.append("Summary: " + "  ".join(
-        f"{k}={s.get(k, 0)}" for k in ["critical", "high", "medium", "low", "info"]))
-    return "\n".join(lines)
-
-
-def _render_manifest_table(meta: dict) -> str:
-    lines = ["APKPEEK manifest metadata"]
-    lines.append(f"  package:       {meta.get('package')}")
-    lines.append(f"  app_label:     {meta.get('app_label')}")
-    lines.append(f"  version_name:  {meta.get('version_name')}")
-    lines.append(f"  version_code:  {meta.get('version_code')}")
-    lines.append(f"  min_sdk:       {meta.get('min_sdk')}")
-    lines.append(f"  target_sdk:    {meta.get('target_sdk')}")
-    lines.append(f"  max_sdk:       {meta.get('max_sdk')}")
-    comps = meta.get("components", {})
-    lines.append("  components:    " + ", ".join(f"{k}={v}" for k, v in comps.items()))
-    perms = meta.get("permissions", [])
-    lines.append(f"  permissions ({len(perms)}):")
-    for p in perms:
-        lines.append(f"    - {p}")
-    cperms = meta.get("custom_permissions", [])
-    if cperms:
-        lines.append(f"  custom_permissions ({len(cperms)}):")
-        for cp in cperms:
-            lines.append(f"    - {cp['name']} [protectionLevel={cp['protectionLevel']}]")
-    return "\n".join(lines)
-
-
-def _load_meta(path: str) -> dict:
-    import zipfile
-    if zipfile.is_zipfile(path):
-        with zipfile.ZipFile(path) as z:
-            if "AndroidManifest.xml" not in z.namelist():
-                return {}
-            xml = _decode_xml_blob(z.read("AndroidManifest.xml"))
-    else:
-        with open(path, "rb") as fh:
-            xml = _decode_xml_blob(fh.read())
-    meta = extract_metadata(xml)
-    meta["_xml"] = xml
-    return meta
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = _build_parser()
+def main(argv=None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
-
-    if args.command == "version":
-        print(f"{TOOL_NAME} {TOOL_VERSION}")
-        return 0
-
-    if args.command == "rules":
-        if args.format == "json":
-            print(json.dumps({
-                "permissions": {k: {"severity": v[0], "description": v[1]}
-                                for k, v in PERMISSION_DB.items()},
-                "secret_rules": [{"id": r[0], "severity": r[1], "label": r[3]}
-                                 for r in _SECRET_PATTERNS],
-            }, indent=2))
-        else:
-            print(f"APKPEEK bundled rules — {len(PERMISSION_DB)} permissions, "
-                  f"{len(_SECRET_PATTERNS)} secret patterns\n")
-            print("Permission database:")
-            for name, (sev, desc) in PERMISSION_DB.items():
-                print(f"  [{sev.upper():<8}] {name}\n             {desc}")
-            print("\nSecret patterns:")
-            for rid, sev, _rx, label in _SECRET_PATTERNS:
-                print(f"  [{sev.upper():<8}] {rid:<18} {label}")
-        return 0
-
-    if args.command == "manifest":
-        try:
-            meta = _load_meta(args.apk)
-        except FileNotFoundError:
-            print(f"error: file not found: {args.apk}", file=sys.stderr)
-            return 2
-        except (OSError, ValueError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 2
-        if not meta:
-            print("error: no AndroidManifest.xml found", file=sys.stderr)
-            return 2
-        xml = meta.pop("_xml", "")
-        if args.format == "json":
-            print(json.dumps(meta, indent=2))
-        else:
-            print(_render_manifest_table(meta))
-            if args.xml:
-                print("\n--- decoded AndroidManifest.xml ---")
-                print(xml)
-        return 0
-
-    if args.command == "scan":
-        try:
-            report = scan_apk(args.apk, scan_secrets_in_files=not args.no_secrets)
-        except FileNotFoundError:
-            print(f"error: file not found: {args.apk}", file=sys.stderr)
-            return 2
-        except (OSError, ValueError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 2
-
-        if args.format == "json":
-            out = json.dumps(report, indent=2)
-        elif args.format == "sarif":
-            out = json.dumps(to_sarif(report, TOOL_NAME, TOOL_VERSION), indent=2)
-        else:
-            out = _render_table(report)
-
-        if args.output:
-            with open(args.output, "w", encoding="utf-8") as fh:
-                fh.write(out + "\n")
-            print(f"wrote {args.format} output to {args.output}", file=sys.stderr)
-        else:
-            print(out)
-
-        threshold = SEVERITY_ORDER[args.fail_on]
-        worst = max((SEVERITY_ORDER.get(f["severity"], 0) for f in report["findings"]), default=-1)
-        return 1 if worst >= threshold else 0
-
-    parser.print_help()
-    return 2
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return EXIT_OK
+    if not hasattr(args, "format"):
+        args.format = "table"
+    return args.func(args)
 
 
 if __name__ == "__main__":
