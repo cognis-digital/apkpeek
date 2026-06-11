@@ -163,13 +163,22 @@ def build_axml() -> bytes:
     return struct.pack("<HHI", _RES_XML_TYPE, header_size, total) + inner
 
 
+# NOTE: these are obvious non-secrets (low-entropy "EXAMPLE" placeholders).
+# The Stripe-shaped sample is assembled from fragments at build time so the
+# full provider-prefixed token never appears verbatim in version control,
+# while the bytes written into the DEX still exercise the scanner's regex.
+_PH = b"EXAMPLE0" * 3 + b"00"                       # 26-char low-entropy body
+_STRIPE = b"sk_" + b"live_" + _PH                   # tool matches sk_live_<24+>
+_GHP = b"ghp_" + b"EXAMPLE0" * 4 + b"EXAM"          # 36-char body
+_SLACK = b"xoxb-" + b"EXAMPLE0-EXAMPLE0-EXAMPLETOKEN0"
+
 FAKE_DEX = (
     b"dex\n035\x00" + b"\x00" * 32 +
     b"\nString table:\n"
     b"https://api.leakybank.example/v1\n"
-    b"stripe_secret=sk_live_EXAMPLE_REDACTED\n"
-    b"github ghp_EXAMPLE0EXAMPLE0EXAMPLE0EXAMPLE0EXAM\n"
-    b"slack xoxb-EXAMPLE0-EXAMPLE0-EXAMPLETOKEN0\n"
+    b"stripe_secret=" + _STRIPE + b"\n"
+    b"github " + _GHP + b"\n"
+    b"slack " + _SLACK + b"\n"
     b"-----BEGIN RSA PRIVATE KEY-----EXAMPLE-----END RSA PRIVATE KEY-----\n"
 )
 
