@@ -6,3 +6,8 @@ dist/
 build/
 .pytest_cache/
 .DS_Store
+
+# Demo APKs are build artifacts — generated on demand by the demo build
+# scripts (and by the test suite's _ensure_apk). They bundle key-shaped demo
+# strings inside a zip, so we never commit them.
+demos/**/*.apk
