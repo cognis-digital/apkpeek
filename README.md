@@ -16,9 +16,15 @@
 </div>
 
 ```bash
-pip install cognis-apkpeek
+pip install "git+https://github.com/cognis-digital/apkpeek.git"
 apkpeek scan .            # → prioritized findings in seconds
 ```
+
+<!-- cognis:layman:start -->
+## What is this?
+
+apkpeek is a command-line tool that scans Android app files (APKs) for common security problems — no installation of heavy frameworks required. Point it at an APK or an AndroidManifest.xml and it instantly reports issues like hardcoded API keys, overly-permissive components that other apps can hijack, dangerous permission requests, and insecure settings such as debug mode or plaintext network traffic. It outputs results as a simple table or as JSON/SARIF so security teams and automated CI pipelines can catch risks before an app ships.
+<!-- cognis:layman:end -->
 
 ## Contents
 
@@ -47,10 +53,56 @@ MobSF is huge and stateful; devs want a single `apkpeek scan app.apk` that drops
 <div align="right"><a href="#top">↑ back to top</a></div>
 
 <a name="quick-start"></a>
+<!-- cognis:domains:start -->
+## Domains
+
+**Primary domain:** Cyber & Security  ·  **JTF MERIDIAN division:** NULLBYTE · SPECTER
+
+**Topics:** `cognis` `security` `infosec` `cybersecurity` `blue-team`
+
+Part of the **Cognis Neural Suite** — 300+ source-available tools organized across 12 domains under the JTF MERIDIAN command structure. See the [suite on GitHub](https://github.com/cognis-digital) and [jtf-meridian](https://github.com/cognis-digital/jtf-meridian) for how the pieces fit together.
+<!-- cognis:domains:end -->
+
+<!-- cognis:install:start -->
+## Install
+
+`apkpeek` is source-available (not published to PyPI) — every method below installs
+straight from GitHub. Pick whichever you prefer; the one-line scripts auto-detect
+the best tool available on your machine.
+
+**One-liner (Linux / macOS):**
+```sh
+curl -fsSL https://raw.githubusercontent.com/cognis-digital/apkpeek/HEAD/install.sh | sh
+```
+
+**One-liner (Windows PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/cognis-digital/apkpeek/HEAD/install.ps1 | iex
+```
+
+**Or install manually — any one of:**
+```sh
+pipx install "git+https://github.com/cognis-digital/apkpeek.git"     # isolated (recommended)
+uv tool install "git+https://github.com/cognis-digital/apkpeek.git"  # uv
+pip install "git+https://github.com/cognis-digital/apkpeek.git"      # pip
+```
+
+**From source:**
+```sh
+git clone https://github.com/cognis-digital/apkpeek.git
+cd apkpeek && pip install .
+```
+
+Then run:
+```sh
+apkpeek --help
+```
+<!-- cognis:install:end -->
+
 ## Quick start
 
 ```bash
-pip install cognis-apkpeek
+pip install "git+https://github.com/cognis-digital/apkpeek.git"
 apkpeek --version
 apkpeek scan .                       # scan current project
 apkpeek scan . --format json         # machine-readable
