@@ -20,6 +20,33 @@ pip install cognis-apkpeek
 apkpeek scan .            # → prioritized findings in seconds
 ```
 
+## Usage — step by step
+
+1. **Install** the CLI (console script `apkpeek`):
+   ```bash
+   pip install cognis-apkpeek
+   ```
+2. **Run a full static scan** of an `.apk` or `AndroidManifest.xml`:
+   ```bash
+   apkpeek scan app.apk
+   ```
+3. **Drill into a single facet** — manifest, permissions, or just hard-coded secrets:
+   ```bash
+   apkpeek manifest app.apk
+   apkpeek permissions app.apk
+   apkpeek secrets app.apk
+   ```
+4. **Read the result** as JSON, and tune scope with `--min-severity` / `--no-dex`:
+   ```bash
+   apkpeek scan app.apk --format json --min-severity medium
+   apkpeek scan app.apk --no-dex          # skip DEX/resource secret scan
+   ```
+5. **Automate in CI** — exit 0 = clean, 1 = error, 2 = findings present (fails the gate):
+   ```yaml
+   - run: pip install cognis-apkpeek
+   - run: apkpeek scan app.apk --format json --min-severity high | tee apkpeek.json
+   ```
+
 ## Contents
 
 - [Why apkpeek?](#why) · [Features](#features) · [Quick start](#quick-start) · [Example](#example) · [Architecture](#architecture) · [AI stack](#ai-stack) · [How it compares](#how-it-compares) · [Integrations](#integrations) · [Install anywhere](#install-anywhere) · [Related](#related) · [Contributing](#contributing)
