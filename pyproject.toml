@@ -34,3 +34,6 @@ apkpeek = "apkpeek.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["apkpeek"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
