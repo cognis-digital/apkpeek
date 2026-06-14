@@ -217,11 +217,17 @@ class _AxmlError(ValueError):
 
 
 def _read_string_pool(buf: bytes, off: int) -> tuple[list[str], int]:
+    if off + 28 > len(buf):
+        raise _AxmlError("string pool header truncated")
     typ, hdr_size, size = struct.unpack_from("<HHI", buf, off)
     if typ != _RES_STRING_POOL:
         raise _AxmlError("expected string pool")
+    if off + size > len(buf):
+        raise _AxmlError("string pool chunk extends beyond buffer")
     string_count, _style_count, flags, strings_start, _styles_start = \
         struct.unpack_from("<IIIII", buf, off + 8)
+    if string_count > 0xFFFF:
+        raise _AxmlError(f"implausible string count: {string_count}")
     is_utf8 = bool(flags & (1 << 8))
     offsets = [struct.unpack_from("<I", buf, off + 28 + i * 4)[0]
                for i in range(string_count)]
@@ -229,14 +235,20 @@ def _read_string_pool(buf: bytes, off: int) -> tuple[list[str], int]:
     out: list[str] = []
     for o in offsets:
         p = base + o
-        if is_utf8:
-            # u16 length (chars) then u16 length (bytes), each may be 1-2 bytes
-            n, p = _decode_len8(buf, p)
-            blen, p = _decode_len8(buf, p)
-            out.append(buf[p:p + blen].decode("utf-8", "replace"))
-        else:
-            n, p = _decode_len16(buf, p)
-            out.append(buf[p:p + n * 2].decode("utf-16-le", "replace"))
+        if p >= len(buf):
+            out.append("")
+            continue
+        try:
+            if is_utf8:
+                # u16 length (chars) then u16 length (bytes), each may be 1-2 bytes
+                n, p = _decode_len8(buf, p)
+                blen, p = _decode_len8(buf, p)
+                out.append(buf[p:p + blen].decode("utf-8", "replace"))
+            else:
+                n, p = _decode_len16(buf, p)
+                out.append(buf[p:p + n * 2].decode("utf-16-le", "replace"))
+        except (struct.error, IndexError):
+            out.append("")
     return out, off + size
 
 
@@ -273,12 +285,21 @@ class XmlElement:
     attrs: dict[str, str]
 
 
-def decode_binary_axml(data: bytes) -> list[XmlElement]:
+def decode_binary_axml(data: bytes,
+                       res_map: "list[int] | None" = None) -> list[XmlElement]:
     """Decode a compiled AndroidManifest.xml into a flat list of start elements
-    (each with its resolved attribute name->value map)."""
+    (each with its resolved attribute name->value map).
+
+    *res_map* is the optional resource-id-to-name map pre-parsed by
+    :func:`decode_binary_axml_full`; when ``None`` the module-level fallback
+    is used (which may be empty unless a prior call populated it).
+    """
+    if len(data) < 8:
+        raise _AxmlError("data too short to be binary AXML")
     typ, hdr_size, total = struct.unpack_from("<HHI", data, 0)
     if typ != _RES_XML_TYPE:
         raise _AxmlError("not a binary XML resource")
+    effective_res_map: list[int] = res_map if res_map is not None else _res_map
     off = hdr_size
     strings: list[str] = []
     elements: list[XmlElement] = []
@@ -293,22 +314,29 @@ def decode_binary_axml(data: bytes) -> list[XmlElement]:
         if c_size <= 0:
             break
         if c_type == _RES_STRING_POOL:
-            strings, _ = _read_string_pool(data, off)
+            try:
+                strings, _ = _read_string_pool(data, off)
+            except _AxmlError:
+                strings = []
         elif c_type == _RES_XML_START_ELEMENT:
             body = off + c_hdr
+            if body + 14 > len(data):
+                break
             ns_idx, name_idx = struct.unpack_from("<ii", data, body)
             attr_start, attr_size, attr_count = \
                 struct.unpack_from("<HHH", data, body + 8)
             ap = body + attr_start
             attrs: dict[str, str] = {}
             for _ in range(attr_count):
+                if ap + 20 > len(data):
+                    break
                 a_ns, a_name, a_raw, a_typed_size_res0, a_data = \
                     struct.unpack_from("<iiiiI", data, ap)
                 # attribute name: prefer the resource-id map name when the
                 # string-pool entry is blank (common in compiled manifests)
                 aname = s(a_name)
-                if not aname and a_name < len(_res_map):
-                    aname = _ATTR_RES_NAMES.get(_res_map[a_name], "")
+                if not aname and 0 <= a_name < len(effective_res_map):
+                    aname = _ATTR_RES_NAMES.get(effective_res_map[a_name], "")
                 value = _decode_attr_value(a_raw, a_typed_size_res0, a_data, s)
                 if aname:
                     attrs[aname] = value
@@ -319,7 +347,8 @@ def decode_binary_axml(data: bytes) -> list[XmlElement]:
     return elements
 
 
-# resource-map chunk lets us map attribute name indices -> android attr ids
+# module-level fallback resource-map (used when decode_binary_axml is called
+# directly without the full pre-pass; decode_binary_axml_full passes it explicitly)
 _res_map: list[int] = []
 
 
@@ -340,10 +369,15 @@ def _decode_attr_value(raw_idx: int, typed_size_res0: int, data: int,
 
 def decode_binary_axml_full(data: bytes) -> list[XmlElement]:
     """Wrapper that also parses the resource-map chunk before elements so we can
-    resolve android: attribute names that compile to empty string-pool slots."""
-    global _res_map
-    _res_map = []
+    resolve android: attribute names that compile to empty string-pool slots.
+
+    Uses a local resource map (not the module-level global) so concurrent
+    calls are safe.
+    """
+    if len(data) < 8:
+        raise _AxmlError("data too short to be binary AXML")
     typ, hdr_size, total = struct.unpack_from("<HHI", data, 0)
+    local_res_map: list[int] = []
     off = hdr_size
     while off + 8 <= len(data):
         c_type, c_hdr, c_size = struct.unpack_from("<HHI", data, off)
@@ -351,10 +385,12 @@ def decode_binary_axml_full(data: bytes) -> list[XmlElement]:
             break
         if c_type == _RES_XML_RES_MAP:
             count = (c_size - c_hdr) // 4
-            _res_map = list(struct.unpack_from("<%dI" % count, data, off + c_hdr))
+            local_res_map = list(
+                struct.unpack_from("<%dI" % count, data, off + c_hdr)
+            )
             break
         off += c_size
-    return decode_binary_axml(data)
+    return decode_binary_axml(data, res_map=local_res_map)
 
 
 # ---------------------------------------------------------------------------
@@ -442,10 +478,19 @@ def parse_manifest_from_elements(elements: list[XmlElement]) -> Manifest:
 
 def parse_manifest_text(text: str) -> Manifest:
     """Parse a decoded plain-text AndroidManifest.xml using xml.etree, while
-    preserving android: attribute names."""
+    preserving android: attribute names.
+
+    Raises ``ValueError`` on empty or malformed XML so callers receive a
+    clean error instead of a raw traceback.
+    """
     import xml.etree.ElementTree as ET
+    if not text or not text.strip():
+        raise ValueError("manifest text is empty")
     ns = "{http://schemas.android.com/apk/res/android}"
-    root = ET.fromstring(text)
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ValueError(f"malformed XML manifest: {exc}") from exc
     elements: list[XmlElement] = []
 
     def attrs_of(node) -> dict[str, str]:
@@ -705,18 +750,34 @@ def manifest_from_bytes(data: bytes) -> Manifest:
 
 def analyze_apk(path: str, scan_dex: bool = True,
                 entropy: float = 4.0) -> Report:
-    """Analyze a real .apk (ZIP) file."""
+    """Analyze a real .apk (ZIP) file.
+
+    Raises ``ValueError`` if the archive cannot be opened as a ZIP or if it
+    contains no ``AndroidManifest.xml`` (i.e. it is not a valid APK).
+    """
     engine = Engine(secret_entropy_threshold=entropy)
     findings: list[Finding] = []
     manifest = Manifest()
-    with zipfile.ZipFile(path) as zf:
+    try:
+        zf_handle = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            f"not a valid ZIP/APK file: {path!r} -- {exc}"
+        ) from exc
+    with zf_handle as zf:
         names = zf.namelist()
-        if "AndroidManifest.xml" in names:
-            data = zf.read("AndroidManifest.xml")
-            manifest = manifest_from_bytes(data)
-            findings += engine.analyze_manifest(manifest)
-            # also string-scan the (possibly binary) manifest
-            findings += engine.scan_blob_secrets(data, "AndroidManifest.xml")
+        if not names:
+            raise ValueError(f"ZIP archive is empty: {path!r}")
+        if "AndroidManifest.xml" not in names:
+            raise ValueError(
+                f"ZIP archive contains no AndroidManifest.xml -- "
+                f"not a valid APK: {path!r}"
+            )
+        data = zf.read("AndroidManifest.xml")
+        manifest = manifest_from_bytes(data)
+        findings += engine.analyze_manifest(manifest)
+        # also string-scan the (possibly binary) manifest
+        findings += engine.scan_blob_secrets(data, "AndroidManifest.xml")
         if scan_dex:
             for n in names:
                 if n.endswith(".dex") or n == "resources.arsc" or \
@@ -741,7 +802,16 @@ def analyze_manifest_file(path: str, entropy: float = 4.0) -> Report:
 
 
 def analyze(path: str, scan_dex: bool = True, entropy: float = 4.0) -> Report:
-    """Dispatch on file type: .apk (zip) vs a raw manifest."""
+    """Dispatch on file type: .apk (zip) vs a raw manifest.
+
+    Raises ``FileNotFoundError`` with a clear message when *path* does not
+    exist, rather than propagating an obscure error from zipfile or open.
+    """
+    import os
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"file not found: {path!r}")
+    if not os.path.isfile(path):
+        raise ValueError(f"path is not a regular file: {path!r}")
     if zipfile.is_zipfile(path):
         return analyze_apk(path, scan_dex=scan_dex, entropy=entropy)
     return analyze_manifest_file(path, entropy=entropy)

@@ -282,7 +282,23 @@ def main(argv=None) -> int:
         return EXIT_OK
     if not hasattr(args, "format"):
         args.format = "table"
-    return args.func(args)
+    # Validate --entropy range before dispatching.
+    if hasattr(args, "entropy"):
+        if not (0.0 <= args.entropy <= 8.0):
+            print(
+                f"error: --entropy {args.entropy} is out of range; "
+                "valid range is 0.0 to 8.0",
+                file=sys.stderr,
+            )
+            return EXIT_ERR
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("interrupted", file=sys.stderr)
+        return EXIT_ERR
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: unexpected failure: {exc}", file=sys.stderr)
+        return EXIT_ERR
 
 
 if __name__ == "__main__":
