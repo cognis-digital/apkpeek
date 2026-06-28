@@ -20,6 +20,70 @@ pip install cognis-apkpeek
 apkpeek scan .            # → prioritized findings in seconds
 ```
 
+
+<!-- cognis:example:start -->
+## 🔎 Example output
+
+Real, reproducible output from the tool — runs offline:
+
+```console
+$ apkpeek-emit --version
+apkpeek 1.0.0
+```
+
+```console
+$ apkpeek-emit --help
+usage: apkpeek [-h] [--version]
+               {scan,manifest,permissions,secrets,perms-db,rules} ...
+
+APKPEEK - static Android APK / manifest security analyzer (MobSF-style, zero
+install).
+
+positional arguments:
+  {scan,manifest,permissions,secrets,perms-db,rules}
+    scan                full static analysis of an apk/manifest
+    manifest            decode and dump the manifest
+    permissions         list requested permissions + protection levels
+    secrets             scan only for hard-coded secret strings
+    perms-db            list the bundled permission catalog
+    rules               list the bundled secret-string rules
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+```
+
+```console
+$ apkpeek-emit rules
+ID              SEVERITY  DESCRIPTION                         
+--------------  --------  ------------------------------------
+aws-access-key  critical  AWS Access Key ID                   
+aws-secret-key  critical  AWS Secret Access Key (heuristic)   
+google-api-key  high      Google API key                      
+google-oauth    medium    Google OAuth client id              
+firebase-db     medium    Firebase database URL               
+gcm-fcm-key     high      Firebase/GCM legacy server key      
+slack-token     high      Slack token                         
+slack-webhook   medium    Slack incoming webhook              
+github-pat      critical  GitHub personal access token        
+github-fine     critical  GitHub fine-grained token           
+stripe-secret   critical  Stripe secret key                   
+stripe-pub      low       Stripe publishable key              
+twilio-sid      high      Twilio account SID                  
+sendgrid        high      SendGrid API key                    
+mailgun         high      Mailgun API key                     
+jwt             medium    JSON Web Token                      
+private-key     critical  Private key block                   
+generic-secret  medium    Generic hard-coded secret assignment
+base64-blob     low       High-entropy base64 blob            
+
+19 secret rules
+```
+
+> Blocks above are real `apkpeek` output — reproduce them from a clone.
+
+<!-- cognis:example:end -->
+
 ## Usage — step by step
 
 1. **Install** the CLI (console script `apkpeek`):

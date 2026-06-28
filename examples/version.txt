@@ -1,0 +1,3 @@
+$ apkpeek-emit --version
+
+apkpeek 1.0.0

@@ -1,0 +1,20 @@
+$ apkpeek-emit --help
+
+usage: apkpeek [-h] [--version]
+               {scan,manifest,permissions,secrets,perms-db,rules} ...
+
+APKPEEK - static Android APK / manifest security analyzer (MobSF-style, zero
+install).
+
+positional arguments:
+  {scan,manifest,permissions,secrets,perms-db,rules}
+    scan                full static analysis of an apk/manifest
+    manifest            decode and dump the manifest
+    permissions         list requested permissions + protection levels
+    secrets             scan only for hard-coded secret strings
+    perms-db            list the bundled permission catalog
+    rules               list the bundled secret-string rules
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit

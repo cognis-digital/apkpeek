@@ -1,0 +1,25 @@
+$ apkpeek-emit rules
+
+ID              SEVERITY  DESCRIPTION                         
+--------------  --------  ------------------------------------
+aws-access-key  critical  AWS Access Key ID                   
+aws-secret-key  critical  AWS Secret Access Key (heuristic)   
+google-api-key  high      Google API key                      
+google-oauth    medium    Google OAuth client id              
+firebase-db     medium    Firebase database URL               
+gcm-fcm-key     high      Firebase/GCM legacy server key      
+slack-token     high      Slack token                         
+slack-webhook   medium    Slack incoming webhook              
+github-pat      critical  GitHub personal access token        
+github-fine     critical  GitHub fine-grained token           
+stripe-secret   critical  Stripe secret key                   
+stripe-pub      low       Stripe publishable key              
+twilio-sid      high      Twilio account SID                  
+sendgrid        high      SendGrid API key                    
+mailgun         high      Mailgun API key                     
+jwt             medium    JSON Web Token                      
+private-key     critical  Private key block                   
+generic-secret  medium    Generic hard-coded secret assignment
+base64-blob     low       High-entropy base64 blob            
+
+19 secret rules
